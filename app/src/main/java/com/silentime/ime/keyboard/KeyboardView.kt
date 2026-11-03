@@ -7,17 +7,16 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
-import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
 import android.util.AttributeSet
 import android.util.Log
 import android.view.MotionEvent
 import android.view.View
-import android.view.HapticFeedbackConstants
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.silentime.ime.BuildConfig
+import com.silentime.ime.feedback.KeyFeedbackPlayer
 import com.silentime.ime.settings.KeyboardSettings
 
 /**
@@ -236,63 +235,55 @@ class KeyboardView @JvmOverloads constructor(
         logD("applyTheme theme=${themePreset.storageKey}")
     }
 
-    // ---------- Stage 4.4.2：按键反馈开关（系统原生机制，尊重系统设置） ----------
+    // ---------- Stage 4.4.2-R1：按键反馈（本地实现，不依赖系统总开关） ----------
+
+    /**
+     * 按键反馈执行器（Stage 4.4.2-R1 由 Service 注入）。
+     * 默认 null（键盘可独立运行，只是无反馈）；Service 创建键盘时注入
+     * [com.silentime.ime.feedback.FeedbackPlayer]（SoundPool + 自制 OGG +
+     * Vibrator 直调，不依赖系统触摸音效 / 触觉反馈总开关）。
+     */
+    var feedbackPlayer: KeyFeedbackPlayer? = null
 
     /**
      * 按键音效开关（默认关闭）。
-     * 打开时按下任意键播放系统原生按键音（[View.playSoundEffect]）；
-     * 播放本身由系统尊重"设置 > 声音 > 触摸提示音"及响铃模式静音。
+     * 打开时按下任意键播放应用自制 OGG（SoundPool），由 [feedbackPlayer] 执行；
+     * 不经过 AudioManager.playSoundEffect / View.playSoundEffect，
+     * 不受系统"触摸提示音"总开关（SOUND_EFFECTS_ENABLED）影响。
      */
     var soundEnabled: Boolean = KeyboardSettings.KEY_SOUND_DEFAULT
 
     /**
      * 按键震动开关（默认关闭）。
-     * 打开时按下任意键触发系统原生键盘轻触反馈
-     * （[View.performHapticFeedback] KEYBOARD_TAP，无权限）。
-     * 不传 PERFORM_* 标志 → 同时尊重系统触觉总开关与当前 View 设置。
+     * 打开时按下任意键由 [feedbackPlayer] 直接调用 Vibrator
+     * （VibrationEffect.createOneShot），不经过 View.performHapticFeedback，
+     * 不受系统"触觉反馈"总开关（HAPTIC_FEEDBACK_ENABLED）影响。
      */
     var vibrationEnabled: Boolean = KeyboardSettings.KEY_VIBRATION_DEFAULT
+
+    /**
+     * 重复按键震动反馈开关（Stage 4.4.3-R2，默认开启）。
+     * 仅控制长按退格连删时的重复短震动；由 Service 从设置注入（与 vibrationEnabled 同模式）。
+     */
+    var repeatVibrationEnabled: Boolean = KeyboardSettings.KEY_REPEAT_VIBRATION_DEFAULT
 
     /**
      * 按键反馈统一入口（普通键 / 功能键一致）。
      * 仅在按下（ACTION_DOWN hit 成功）触发一次：
      *  - 长按退格连发与滑键路径不会经过此方法 → 天然无堆积。
-     *  - 使用系统原生机制，不引入音频资源 / 第三方依赖 / 权限。
+     *  - 只在 SilentIME 自己的键盘上触发，不影响其他应用与系统界面。
+     *  - 无注入执行器时静默跳过（不影响按键输入）。
      */
     private fun performKeyFeedback() {
+        val player = feedbackPlayer ?: return
         if (soundEnabled || vibrationEnabled) {
             logD("feedback sound=$soundEnabled vib=$vibrationEnabled")
         }
         if (soundEnabled) {
-            // 直接播放系统键盘音（AudioManager 系统音效，FX_KEYPRESS_STANDARD）：
-            //  - 无需音频资源 / 权限，API 21+（minSdk 26 满足）。
-            //  - 不依赖"设置 > 声音 > 触摸提示音"开关：View.playSoundEffect 内部
-            //    检查 Settings.System.SOUND_EFFECTS_ENABLED（很多设备默认关闭），
-            //    导致"开了没声音"；AudioManager.playSoundEffect 直接播系统键盘音，
-            //    只由系统遵循响铃模式 / 音量（静音、勿扰时不响）= 尊重系统声音设置。
-            try {
-                val am = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-                am?.playSoundEffect(AudioManager.FX_KEYPRESS_STANDARD)
-            } catch (_: Exception) {
-                // 极端情况（音频系统不可用）静默，不影响按键
-            }
+            player.playKeySound()
         }
         if (vibrationEnabled) {
-            // 系统原生键盘轻触。必须传 FLAG_IGNORE_VIEW_SETTING：
-            //  View 的 hapticFeedbackEnabled 默认 false，不传该标志会在
-            //  View.performHapticFeedback 内直接 return false（永不触发，表现为
-            //  "开了没震动"）。该标志只跳过 View 级开关，系统触觉总开关
-            //  （Settings.System.HAPTIC_FEEDBACK_ENABLED）仍由系统强制执行
-            //  → 继续尊重系统触觉设置。
-            try {
-                val ok = performHapticFeedback(
-                    HapticFeedbackConstants.KEYBOARD_TAP,
-                    HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING,
-                )
-                logD("haptic ok=$ok")
-            } catch (_: Exception) {
-                // 极端情况（触觉服务不可用）静默，不影响按键
-            }
+            player.playKeyVibration()
         }
     }
 
@@ -819,6 +810,12 @@ class KeyboardView @JvmOverloads constructor(
         stopBackspaceRepeat()
         val runnable = object : Runnable {
             override fun run() {
+                // Stage 4.4.3-R1：连删每次删除同步触发重复短震动（仅震动开启时）。
+                // 调用顺序：先震动后删除，保证删除动作发生时马达已激活，手感同步；
+                // 不触发音效（避免 60ms 间隔下 OGG 堆积/爆音）。
+                if (vibrationEnabled && repeatVibrationEnabled) {
+                    feedbackPlayer?.playKeyVibrationRepeat()
+                }
                 listener?.onKeyBackspaceRepeat()
                 repeatHandler.postDelayed(this, repeatIntervalMs)
             }

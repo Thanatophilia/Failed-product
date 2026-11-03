@@ -33,6 +33,11 @@ object SettingsRepository {
 
     /** 按键震动开关键（存储值：Boolean，默认 false） */
     const val KEY_VIBRATION_ENABLED = "key_vibration_enabled"
+    /** 重复按键震动反馈开关键（存储值：Boolean，默认 true） */
+    const val KEY_REPEAT_VIBRATION_ENABLED = "key_repeat_vibration_enabled"
+
+    /** 按键音效音量键（存储值：0~100 的整数，默认 100） */
+    const val KEY_SOUND_VOLUME = "key_sound_volume"
 
     @Volatile
     private var prefs: SharedPreferences? = null
@@ -88,6 +93,20 @@ object SettingsRepository {
     fun keyVibrationEnabled(): Boolean =
         p().getBoolean(KEY_VIBRATION_ENABLED, KeyboardSettings.KEY_VIBRATION_DEFAULT)
 
+    /** 重复按键震动反馈开关（默认 true；Stage 4.4.3-R2） */
+    fun repeatVibrationEnabled(): Boolean =
+        p().getBoolean(KEY_REPEAT_VIBRATION_ENABLED, KeyboardSettings.KEY_REPEAT_VIBRATION_DEFAULT)
+
+    /** 按键音效音量（默认 100；越界回退默认） */
+    fun soundVolume(): Int {
+        val v = p().getInt(KEY_SOUND_VOLUME, KeyboardSettings.KEY_SOUND_VOLUME_DEFAULT)
+        return if (v in KeyboardSettings.SOUND_VOLUME_MIN..KeyboardSettings.SOUND_VOLUME_MAX) {
+            v
+        } else {
+            KeyboardSettings.KEY_SOUND_VOLUME_DEFAULT
+        }
+    }
+
     // ---------- 写入（立即持久化） ----------
 
     fun setPortraitPercent(percent: Int) {
@@ -116,6 +135,18 @@ object SettingsRepository {
 
     fun setKeyVibrationEnabled(enabled: Boolean) {
         p().edit().putBoolean(KEY_VIBRATION_ENABLED, enabled).apply()
+    }
+
+    fun setRepeatVibrationEnabled(enabled: Boolean) {
+        p().edit().putBoolean(KEY_REPEAT_VIBRATION_ENABLED, enabled).apply()
+    }
+
+    fun setSoundVolume(volume: Int) {
+        val clamped = volume.coerceIn(
+            KeyboardSettings.SOUND_VOLUME_MIN,
+            KeyboardSettings.SOUND_VOLUME_MAX,
+        )
+        p().edit().putInt(KEY_SOUND_VOLUME, clamped).apply()
     }
 
     // ---------- 应用内监听（Service 生命周期注册，实时生效） ----------

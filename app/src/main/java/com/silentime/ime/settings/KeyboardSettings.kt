@@ -102,4 +102,13 @@ object KeyboardSettings {
 
     /** 按键震动开关默认值（默认关闭；确保低打扰） */
     const val KEY_VIBRATION_DEFAULT = false
+    /** 重复按键震动反馈开关默认值（Stage 4.4.3-R2：默认开启，与 R1 已验证行为一致） */
+    const val KEY_REPEAT_VIBRATION_DEFAULT = true
+
+    /** 按键音效音量默认值（0~100，默认 100 = 满音量，保持现有听感） */
+    const val KEY_SOUND_VOLUME_DEFAULT = 100
+
+    /** 按键音效音量范围 */
+    const val SOUND_VOLUME_MIN = 0
+    const val SOUND_VOLUME_MAX = 100
 }

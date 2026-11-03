@@ -9,6 +9,8 @@ import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
+import com.silentime.ime.feedback.FeedbackPlayer
+import com.silentime.ime.feedback.KeyFeedbackPlayer
 import com.silentime.ime.keyboard.KeyboardView
 import com.silentime.ime.keyboard.LayoutMode
 import com.silentime.ime.settings.KeyboardSettings
@@ -47,6 +49,9 @@ class SilentImeService : InputMethodService(), KeyboardView.Listener {
 
     private var keyboardView: KeyboardView? = null
 
+    /** Stage 4.4.2-R1：本地反馈执行器（SoundPool + 自制 OGG + Vibrator，Service 生命周期持有） */
+    private var feedbackPlayer: KeyFeedbackPlayer? = null
+
     /** 当前 EditorInfo，用于决定回车键行为 */
     private var currentEditorInfo: EditorInfo? = null
 
@@ -70,15 +75,19 @@ class SilentImeService : InputMethodService(), KeyboardView.Listener {
             return@OnSharedPreferenceChangeListener
         }
         // 按键音效 / 震动开关：仅更新 View 标志（不重建视图，不影响测量/布局）
+        // Stage 4.4.3-R2：重复按键震动反馈开关跟随震动开关一并转发
         if (key == SettingsRepository.KEY_SOUND_ENABLED ||
-            key == SettingsRepository.KEY_VIBRATION_ENABLED
+            key == SettingsRepository.KEY_VIBRATION_ENABLED ||
+            key == SettingsRepository.KEY_REPEAT_VIBRATION_ENABLED
         ) {
             keyboardView?.let { kb ->
                 kb.soundEnabled = SettingsRepository.keySoundEnabled()
                 kb.vibrationEnabled = SettingsRepository.keyVibrationEnabled()
+                kb.repeatVibrationEnabled = SettingsRepository.repeatVibrationEnabled()
                 logD(
                     "settings feedback sound=${kb.soundEnabled} " +
-                        "vib=${kb.vibrationEnabled}"
+                        "vib=${kb.vibrationEnabled} " +
+                        "repeatVib=${kb.repeatVibrationEnabled}"
                 )
             }
             return@OnSharedPreferenceChangeListener
@@ -109,7 +118,10 @@ class SilentImeService : InputMethodService(), KeyboardView.Listener {
         // 初始化存储并注册监听（设置修改实时生效）
         SettingsRepository.init(this)
         SettingsRepository.registerListener(settingsListener)
-        logD("onCreate settings listener registered")
+        // Stage 4.4.2-R1：创建本地反馈执行器（SoundPool + 自制 OGG + Vibrator）。
+        // IME Service 被系统绑定后常驻，onDestroy 时统一释放，不泄漏不堆积。
+        feedbackPlayer = FeedbackPlayer(this)
+        logD("onCreate settings listener registered feedback=${feedbackPlayer != null}")
     }
 
     override fun onCreateInputView(): View {
@@ -123,6 +135,10 @@ class SilentImeService : InputMethodService(), KeyboardView.Listener {
         // Stage 4.4.2：按键反馈开关（默认关闭）
         view.soundEnabled = SettingsRepository.keySoundEnabled()
         view.vibrationEnabled = SettingsRepository.keyVibrationEnabled()
+        // Stage 4.4.3-R2：重复按键震动反馈开关（默认开启）
+        view.repeatVibrationEnabled = SettingsRepository.repeatVibrationEnabled()
+        // Stage 4.4.2-R1：注入本地反馈执行器（SoundPool + Vibrator）
+        view.feedbackPlayer = feedbackPlayer
         logD(
             "onCreateInputView newView=$view theme=${view.themePreset.storageKey} " +
                 "portrait=${view.portraitPercent} landscape=${view.landscapePercent} " +
@@ -163,6 +179,10 @@ class SilentImeService : InputMethodService(), KeyboardView.Listener {
         // Stage 4.4.2：按键反馈开关（默认关闭）
         view.soundEnabled = SettingsRepository.keySoundEnabled()
         view.vibrationEnabled = SettingsRepository.keyVibrationEnabled()
+        // Stage 4.4.3-R2：重复按键震动反馈开关（默认开启）
+        view.repeatVibrationEnabled = SettingsRepository.repeatVibrationEnabled()
+        // Stage 4.4.2-R1：注入本地反馈执行器
+        view.feedbackPlayer = feedbackPlayer
         view.mode = mode
         view.enterLabel = enterLabel
 
@@ -268,6 +288,9 @@ class SilentImeService : InputMethodService(), KeyboardView.Listener {
         SettingsRepository.unregisterListener(settingsListener)
         keyboardView?.listener = null
         keyboardView = null
+        // Stage 4.4.2-R1：释放 SoundPool 等资源，防止泄漏
+        feedbackPlayer?.release()
+        feedbackPlayer = null
         super.onDestroy()
     }
 

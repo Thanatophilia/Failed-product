@@ -1,14 +1,9 @@
 package com.silentime.ime
 
-import android.database.ContentObserver
 import android.graphics.Color
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
-import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
-import android.view.View
 import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.RadioGroup
@@ -33,9 +28,6 @@ import com.silentime.ime.settings.SettingsRepository
  * 最终实际高度仍受原 dp 安全边界约束（竖屏 180~320、横屏 120~260）。
  */
 class MainActivity : AppCompatActivity() {
-
-    /** Stage 4.4.2-R1：系统反馈状态提示（null = 尚未创建） */
-    private var systemStatus: TextView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -90,6 +82,14 @@ class MainActivity : AppCompatActivity() {
         soundRow.addView(soundSwitch)
         root.addView(soundRow)
 
+        // 按键音效音量（Stage 4.4.2-R2：0~100%，默认 100，实时生效）
+        val soundVolumeLabel = valueLabel().also { root.addView(it) }
+        val soundVolumeBar = SeekBar(this).apply {
+            max = KeyboardSettings.SOUND_VOLUME_MAX
+            progress = SettingsRepository.soundVolume()
+        }
+        root.addView(soundVolumeBar)
+
         val vibeRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -109,51 +109,25 @@ class MainActivity : AppCompatActivity() {
         vibeRow.addView(vibeSwitch)
         root.addView(vibeRow)
 
-        // ---------- Stage 4.4.2-R1：系统反馈状态提示 ----------
-        // 依赖系统总开关（Settings.System 触摸音效 / 触觉反馈）：
-        //  SilentIME 开关只决定"是否请求系统反馈"，真正输出与否由系统总开关决定。
-        //  这里是只读提示（不写入、不请求权限、不改变反馈调用链）：
-        //  - soundSystemOn=false → 提示"系统触摸提示音已关闭"
-        //  - vibeSystemOn=false  → 提示"系统触觉反馈已关闭"
-        //  - 两个都开 → 绿色"状态正常"提示
-        //  通过 ContentObserver 监听系统设置变化，返回页面时自动刷新。
-        val systemStatusView = TextView(this).apply {
-            textSize = 13f
-            setPadding(0, 4, 0, 12)
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-            )
+        // 重复按键震动反馈开关（Stage 4.4.3-R2）：只控制长按退格连删的重复短震动
+        val repeatVibeRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 8, 0, 12)
         }
-        systemStatus = systemStatusView
-        refreshSystemStatusView()
-
-        // 系统设置变化（如用户在系统设置里打开/关闭触摸音效/触觉）后自动刷新提示。
-        // 读取 Settings.System 无需权限；注册的 URI 是系统设置整体，通知粒度粗但
-        // 足够（仅影响本页一个 TextView，开销可忽略）。页面关闭时注销。
-        val systemObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
-            override fun onChange(selfChange: Boolean) {
-                refreshSystemStatusView()
+        repeatVibeRow.addView(
+            TextView(this).apply {
+                text = "重复按键震动反馈"
+                textSize = 16f
+                setTextColor(Color.WHITE)
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
-        }
-        contentResolver.registerContentObserver(
-            Settings.System.CONTENT_URI,
-            true,
-            systemObserver,
         )
-        root.addView(systemStatusView)
-
-        // 页面关闭时注销观察者，防止泄漏
-        lifecycle.addObserver(object : androidx.lifecycle.LifecycleEventObserver {
-            override fun onStateChanged(
-                source: androidx.lifecycle.LifecycleOwner,
-                event: androidx.lifecycle.Lifecycle.Event,
-            ) {
-                if (event == androidx.lifecycle.Lifecycle.Event.ON_DESTROY) {
-                    contentResolver.unregisterContentObserver(systemObserver)
-                }
-            }
-        })
+        val repeatVibeSwitch = Switch(this).apply {
+            isChecked = SettingsRepository.repeatVibrationEnabled()
+        }
+        repeatVibeRow.addView(repeatVibeSwitch)
+        root.addView(repeatVibeRow)
 
         // ---------- 主题三档 ----------
         root.addView(sectionTitle("键盘主题"))
@@ -182,6 +156,8 @@ class MainActivity : AppCompatActivity() {
                 "当前：${SettingsRepository.portraitPercent()}%（范围 25~45，默认 35%）"
             landscapeLabel.text =
                 "当前：${SettingsRepository.landscapePercent()}%（范围 35~65，默认 49%）"
+            soundVolumeLabel.text =
+                "音效音量 ${SettingsRepository.soundVolume()}%"
         }
         refreshLabels()
 
@@ -209,6 +185,18 @@ class MainActivity : AppCompatActivity() {
             override fun onStopTrackingTouch(seekBar: SeekBar) {}
         })
 
+        // 按键音效音量拉条：实时保存 + 刷新百分比
+        soundVolumeBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
+                if (!fromUser) return
+                SettingsRepository.setSoundVolume(progress)
+                refreshLabels()
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar) {}
+        })
+
         themeGroup.setOnCheckedChangeListener { _, checkedId ->
             val rb = themeGroup.findViewById<RadioButton>(checkedId)
             val preset = rb?.tag as? KeyboardSettings.ThemePreset
@@ -226,38 +214,12 @@ class MainActivity : AppCompatActivity() {
             SettingsRepository.setKeyVibrationEnabled(isChecked)
             logD("keyVibrationEnabled -> $isChecked")
         }
+        repeatVibeSwitch.setOnCheckedChangeListener { _, isChecked ->
+            SettingsRepository.setRepeatVibrationEnabled(isChecked)
+            logD("repeatVibrationEnabled -> $isChecked")
+        }
 
         setContentView(root)
-    }
-
-    /**
-     * 从系统设置页返回（或页面重新可见）时刷新系统反馈状态提示。
-     * 与 ContentObserver 双保险：即使系统设置通知偶发丢失，回到前台也必然刷新。
-     */
-    override fun onResume() {
-        super.onResume()
-        refreshSystemStatusView()
-    }
-
-    /**
-     * Stage 4.4.2-R1：刷新"系统反馈状态提示"文本与颜色。
-     * 仅读取系统设置并更新 UI，不写入、不改权限、不动反馈调用链。
-     */
-    private fun refreshSystemStatusView() {
-        val view = systemStatus ?: return
-        val s = systemSoundEffectsEnabled()
-        val v = systemHapticFeedbackEnabled()
-        val parts = ArrayList<String>()
-        if (!s) parts.add("系统触摸提示音已关闭，开启后才能听到按键音效。")
-        if (!v) parts.add("系统触觉反馈已关闭，开启后才能感受到按键震动。")
-        if (parts.isEmpty()) {
-            view.text = "系统反馈状态正常：可听到按键音效并感受到按键震动。"
-            view.setTextColor(0xFF7CB342.toInt()) // 绿色
-        } else {
-            view.text = parts.joinToString("\n")
-            view.setTextColor(0xFFFFB300.toInt()) // 琥珀色
-        }
-        view.visibility = View.VISIBLE
     }
 
     private fun sectionTitle(text: String): TextView = TextView(this).apply {
@@ -277,29 +239,4 @@ class MainActivity : AppCompatActivity() {
     private fun logD(msg: String) {
         if (BuildConfig.DEBUG) Log.d("SilentIME/UI", msg)
     }
-
-    // ---------- Stage 4.4.2-R1：系统反馈总开关只读检测 ----------
-
-    /**
-     * 系统"触摸提示音"总开关（Settings.System.SOUND_EFFECTS_ENABLED）。
-     * 仅读取（普通权限即可，不需要 WRITE_SETTINGS）；读取失败按"开启"处理，
-     * 避免个别机型缺失该键时误报提示干扰用户。
-     */
-    private fun systemSoundEffectsEnabled(): Boolean =
-        Settings.System.getInt(
-            contentResolver,
-            Settings.System.SOUND_EFFECTS_ENABLED,
-            1,
-        ) == 1
-
-    /**
-     * 系统"触觉反馈"总开关（Settings.System.HAPTIC_FEEDBACK_ENABLED）。
-     * 仅读取；读取失败按"开启"处理（理由同上）。
-     */
-    private fun systemHapticFeedbackEnabled(): Boolean =
-        Settings.System.getInt(
-            contentResolver,
-            Settings.System.HAPTIC_FEEDBACK_ENABLED,
-            1,
-        ) == 1
 }
