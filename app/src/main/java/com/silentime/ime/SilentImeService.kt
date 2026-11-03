@@ -1,5 +1,6 @@
 package com.silentime.ime
 
+import android.content.SharedPreferences
 import android.inputmethodservice.InputMethodService
 import android.text.InputType
 import android.util.Log
@@ -10,6 +11,8 @@ import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
 import com.silentime.ime.keyboard.KeyboardView
 import com.silentime.ime.keyboard.LayoutMode
+import com.silentime.ime.settings.KeyboardSettings
+import com.silentime.ime.settings.SettingsRepository
 
 /**
  * SilentIME 输入法服务（Stage 3：键盘 UI + 基础英文输入）。
@@ -50,14 +53,106 @@ class SilentImeService : InputMethodService(), KeyboardView.Listener {
     /** Shift 是否激活（一次性） */
     private var shiftActive = false
 
+    // ---------- Stage 4.4.1：设置持久化 + 实时生效 ----------
+
+    /** 设置变更监听（必须持有强引用，防 GC） */
+    private val settingsListener = SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
+        // 主题变更：即时重绘（无需重建 View）
+        if (key == SettingsRepository.KEY_THEME) {
+            val kb = keyboardView ?: return@OnSharedPreferenceChangeListener
+            val preset = KeyboardSettings.ThemePreset.fromStorage(
+                prefs.getString(SettingsRepository.KEY_THEME, null)
+            )
+            if (preset != kb.themePreset) {
+                kb.themePreset = preset
+                logD("settings theme changed -> ${preset.storageKey}")
+            }
+            return@OnSharedPreferenceChangeListener
+        }
+        // 高度百分比变更（竖屏 / 横屏任一）：重建输入视图（见 rebuildInputView 注释）
+        if (key == SettingsRepository.KEY_HEIGHT_PORTRAIT ||
+            key == SettingsRepository.KEY_HEIGHT_LANDSCAPE
+        ) {
+            val kb = keyboardView ?: return@OnSharedPreferenceChangeListener
+            val newPortrait = SettingsRepository.portraitPercent()
+            val newLandscape = SettingsRepository.landscapePercent()
+            // 只有方向相关的值真正变化才重建（避免横竖屏无关键触发无谓重建）
+            val portraitChanged = newPortrait != kb.portraitPercent
+            val landscapeChanged = newLandscape != kb.landscapePercent
+            if (portraitChanged || landscapeChanged) {
+                rebuildInputView(
+                    portraitPercent = newPortrait,
+                    landscapePercent = newLandscape,
+                )
+            }
+        }
+    }
+
     // ---------- 生命周期 ----------
+
+    override fun onCreate() {
+        super.onCreate()
+        // 初始化存储并注册监听（设置修改实时生效）
+        SettingsRepository.init(this)
+        SettingsRepository.registerListener(settingsListener)
+        logD("onCreate settings listener registered")
+    }
 
     override fun onCreateInputView(): View {
         val view = KeyboardView(this)
         view.listener = this
         keyboardView = view
-        logD("onCreateInputView newView=$view")
+        // 应用已保存的设置（默认深色 / 竖屏 35% / 横屏 49%）
+        view.themePreset = SettingsRepository.themePreset()
+        view.portraitPercent = SettingsRepository.portraitPercent()
+        view.landscapePercent = SettingsRepository.landscapePercent()
+        logD(
+            "onCreateInputView newView=$view theme=${view.themePreset.storageKey} " +
+                "portrait=${view.portraitPercent} landscape=${view.landscapePercent}"
+        )
         return view
+    }
+
+    /**
+     * Stage 4.4.1：高度百分比变更时重建输入视图。
+     *
+     * 为什么必须重建而不是只改 [KeyboardView.portraitPercent]：
+     *  KeyboardView.onMeasure 的"持久内容预算缓存"（Stage 3.2.1 防超高机制）
+     *  会把测量高度钳制在 min(calcTotal, budgetH)。budgetH 来自持久缓存
+     *  （旧百分比协商结果），因此新百分比的 calc 可能被旧预算钳制。
+     *  重建输入视图会让系统重新为 View 协商窗口预算，百分比真正作用于测量。
+     *
+     * 重建时保留当前布局模式 / 回车标签（输入体验不中断），
+     * 主题仍走 [KeyboardView.applyTheme] 即时重绘，不在此重建。
+     */
+    private fun rebuildInputView(
+        portraitPercent: Int = SettingsRepository.portraitPercent(),
+        landscapePercent: Int = SettingsRepository.landscapePercent(),
+    ) {
+        val oldView = keyboardView
+        val mode = oldView?.mode ?: LayoutMode.LETTERS_LOWER
+        val enterLabel = oldView?.enterLabel ?: "\u23CE"
+
+        // 百分比变更前必须重置持久内容预算缓存，否则新百分比会被旧预算钳制
+        // （见 KeyboardView.resetContentBudgetCache 注释）。
+        KeyboardView.resetContentBudgetCache()
+
+        val view = KeyboardView(this)
+        view.listener = this
+        view.themePreset = SettingsRepository.themePreset()
+        view.portraitPercent = portraitPercent
+        view.landscapePercent = landscapePercent
+        view.mode = mode
+        view.enterLabel = enterLabel
+
+        keyboardView = view
+        oldView?.listener = null
+        setInputView(view)
+        logD(
+            "rebuildInputView new=$view mode=$mode enter=$enterLabel " +
+                "portrait=$portraitPercent landscape=$landscapePercent " +
+                "theme=${view.themePreset.storageKey}"
+        )
     }
 
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
@@ -147,6 +242,8 @@ class SilentImeService : InputMethodService(), KeyboardView.Listener {
 
     override fun onDestroy() {
         logD("onDestroy kb=${keyboardView}")
+        // Stage 4.4.1：注销设置监听，避免 Service 销毁后仍收到回调
+        SettingsRepository.unregisterListener(settingsListener)
         keyboardView?.listener = null
         keyboardView = null
         super.onDestroy()

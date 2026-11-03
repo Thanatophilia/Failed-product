@@ -16,6 +16,7 @@ import android.view.View
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.silentime.ime.BuildConfig
+import com.silentime.ime.settings.KeyboardSettings
 
 /**
  * 自定义键盘视图（Stage 3 增强版）。
@@ -65,6 +66,45 @@ class KeyboardView @JvmOverloads constructor(
         private var cachedScreenHdpLandscape = 0
         @JvmStatic
         private var cachedDensity = 0f
+        // Stage 4.4.1 v2.0：持久缓存签名再增加"目标百分比"维度。
+        // 百分比滑块（竖屏 25~45、横屏 35~65）也是内容预算的组成部分：不同
+        // 百分比协商出的内容预算不同。若签名不含百分比，用户在键盘未打开时
+        // 拖动滑块（Service 监听不重建、缓存残留），下次唤起键盘会被旧百分比
+        // 的预算钳制（表现为"改了不生效 / 恢复不完全"）。
+        // 把百分比纳入签名后：百分比变更 → 签名自动失效 → 回退自算并重新
+        // 协商，从源头杜绝跨百分比缓存污染；同百分比热切换/旋转的防超高
+        // 能力完全不受影响。
+        @JvmStatic
+        private var cachedPortraitPercent = -1
+        @JvmStatic
+        private var cachedLandscapePercent = -1
+        // Stage 4.4.1 v2.1：最近一次"有效窗口预算"（specH，含 inset 语义）。
+        // 伪预算（全屏 specH）出现时，总高度必须被该值硬钳制：
+        // 矮键盘（如 29%）协商预算 689，伪预算路径 calc+inset 会算出 821
+        // 超过 689，导致窗口溢出 132px 到导航栏（touchable 超屏）→
+        // 与系统三键重叠（用户反馈"低于 35% 必触发"）。钳制后永不超屏；
+        // 与缓存签名/缩水保护正交，正常键盘（预算=921）不受影响。
+        @JvmStatic
+        private var lastBudgetSpecH = 0
+
+        /**
+         * Stage 4.4.1：重置跨 View 持久内容预算缓存。
+         * 高度设置变更重建输入视图前必须先调用（Service 负责），否则新百分比的
+         * calc 会被旧百分比协商出的持久预算钳制。清空后新 View 走"无缓存自算 +
+         * 重新协商窗口"路径，设置真实作用于高度；日常热切换（同设置）缓存仍
+         * 正常工作。
+         */
+        @JvmStatic
+        fun resetContentBudgetCache() {
+            cachedContentPortrait = 0
+            cachedContentLandscape = 0
+            cachedScreenHdpPortrait = 0
+            cachedScreenHdpLandscape = 0
+            cachedDensity = 0f
+            cachedPortraitPercent = -1
+            cachedLandscapePercent = -1
+            lastBudgetSpecH = 0
+        }
     }
 
     /** 按键回调，由 InputMethodService 实现 */
@@ -125,6 +165,75 @@ class KeyboardView @JvmOverloads constructor(
     /** 是否横屏（竖屏 / 横屏参数分离，横屏不沿用竖屏尺寸） */
     private var isLandscape = false
 
+    // ---------- Stage 4.4.1：设置驱动的外观 ----------
+
+    /**
+     * 当前竖屏目标百分比（Stage 4.4.1 滑块值，25~45）。
+     * setter 触发重测：百分比变化改变 calcTotal，需让测量管线用新值重算。
+     * 真正的完整生效（清缓存 + 重建窗口协商）由 Service 在设置变更时负责
+     * （见 SilentImeService.rebuildInputView）；此 setter 用于"进程刚启动 / 首帧"
+     * 等预算尚无缓存的场景直接生效。
+     */
+    var portraitPercent: Int = KeyboardSettings.DEFAULT_PORTRAIT_PERCENT
+        set(value) {
+            val clamped = value.coerceIn(
+                KeyboardSettings.PORTRAIT_MIN_PERCENT,
+                KeyboardSettings.PORTRAIT_MAX_PERCENT,
+            )
+            if (field != clamped) {
+                field = clamped
+                logD("portraitPercent -> $clamped")
+                requestRemeasure()
+            }
+        }
+
+    /**
+     * 当前横屏目标百分比（Stage 4.4.1 滑块值，35~65）。
+     * 语义同 [portraitPercent]。
+     */
+    var landscapePercent: Int = KeyboardSettings.DEFAULT_LANDSCAPE_PERCENT
+        set(value) {
+            val clamped = value.coerceIn(
+                KeyboardSettings.LANDSCAPE_MIN_PERCENT,
+                KeyboardSettings.LANDSCAPE_MAX_PERCENT,
+            )
+            if (field != clamped) {
+                field = clamped
+                logD("landscapePercent -> $clamped")
+                requestRemeasure()
+            }
+        }
+
+    /**
+     * 当前主题档位（stage 4.4.1）。
+     * 切换后立即重绘；颜色来源统一为 [KeyboardSettings.THEME_COLORS]，
+     * 不在此处硬编码 6 色。
+     */
+    var themePreset: KeyboardSettings.ThemePreset = KeyboardSettings.ThemePreset.DARK
+        set(value) {
+            if (field != value) {
+                field = value
+                applyTheme()
+                invalidate()
+            }
+        }
+
+    /**
+     * 依据 [themePreset] 刷新 6 个绘制色（背景/普通键/按下/功能键/文字/按下文字）。
+     * 深色默认与基线硬编码色完全一致，保证升级后默认外观不变。
+     * 供 Service 初始化与设置变更时调用。
+     */
+    fun applyTheme() {
+        val c = KeyboardSettings.THEME_COLORS.getValue(themePreset)
+        bgColor = c.bg
+        keyColor = c.key
+        keyPressedColor = c.keyPressed
+        funcKeyColor = c.funcKey
+        labelColor = c.label
+        labelPressedColor = c.labelPressed
+        logD("applyTheme theme=${themePreset.storageKey}")
+    }
+
     // ---------- 复用对象，避免 onDraw 中分配 ----------
 
     private val keyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -164,6 +273,9 @@ class KeyboardView @JvmOverloads constructor(
         isClickable = true
         isFocusable = false
         installInsetsListener()
+        // Stage 4.4.1：初始化即应用设置色（默认深色与基线一致，无视觉变化；
+        // 若 Service 先设置 themePreset 再返回 View，此处在 set 时已刷新）。
+        applyTheme()
         logD("init() this=$this")
     }
 
@@ -291,6 +403,8 @@ class KeyboardView @JvmOverloads constructor(
             bottomInsetPx = insetBottom,
             isLandscape = isLandscape,
             density = resources.displayMetrics.density,
+            portraitPercent = portraitPercent,
+            landscapePercent = landscapePercent,
         )
         val specH = MeasureSpec.getSize(heightMeasureSpec)
         val specMode = MeasureSpec.getMode(heightMeasureSpec)
@@ -317,7 +431,6 @@ class KeyboardView @JvmOverloads constructor(
         val isEffectiveBudget = specMode != MeasureSpec.UNSPECIFIED &&
             specH > 0 &&
             (specH - insetBottom) <= usableH * 0.55f
-        // v4.2：下限保护——拒绝异常缩水预算污染持久缓存。
         // 依据（真实日志）：正常协商 |specH-calc|/calc < 10%（875vs963、921vs963）；
         // 缩水预算 772/640 与 calc(963) 偏差仅 20%/34%，因此阈值取 50% 无法拦截，
         // 必须改为与"当前 calc"同源对比 + 签名校验组合。
@@ -335,7 +448,15 @@ class KeyboardView @JvmOverloads constructor(
             cachedScreenHdpLandscape
         } else {
             cachedScreenHdpPortrait
-        }) == screenHdp && cachedDensity == density
+        }) == screenHdp && cachedDensity == density &&
+            // Stage 4.4.1 v2.0：签名须匹配当前目标百分比。
+            // 百分比不同 → 旧百分比协商出的内容预算对新百分比无效（否则拖动
+            // 滑块后旧预算会把新高度钳错），视作无缓存回退自算。
+            (if (isLandscape) {
+                cachedLandscapePercent
+            } else {
+                cachedPortraitPercent
+            }) == if (isLandscape) landscapePercent else portraitPercent
         // 缩水保护：当 specH 是有效预算但显著小于"签名匹配的持久缓存 × 0.85"时，
         // 视为异常缩水（导航切换中间态/窗口动画），禁止写入持久缓存（只用于本次布局）。
         // 若持久缓存缺失（=0，如进程刚启动首次协商），则与 calcTotal 对比：
@@ -350,9 +471,11 @@ class KeyboardView @JvmOverloads constructor(
             if (isLandscape) {
                 cachedContentLandscape = specH - insetBottom
                 cachedScreenHdpLandscape = screenHdp
+                cachedLandscapePercent = landscapePercent
             } else {
                 cachedContentPortrait = specH - insetBottom
                 cachedScreenHdpPortrait = screenHdp
+                cachedPortraitPercent = portraitPercent
             }
             cachedDensity = density
         }
@@ -362,7 +485,21 @@ class KeyboardView @JvmOverloads constructor(
             sigValid && cachedContentBudget > 0 -> cachedContentBudget + insetBottom
             else -> calcTotal
         }
-        val total = minOf(calcTotal, budgetH)
+        // Stage 4.4.1 v2.1：有效预算到达时记录（含 inset 语义的 specH 本身）。
+        // 之后伪预算/动画中间态必须被该值硬钳制，防止矮键盘溢出导航栏。
+        if (isEffectiveBudget) {
+            lastBudgetSpecH = specH
+        }
+        var total = minOf(calcTotal, budgetH)
+        // Stage 4.4.1 v2.1：矮键盘防溢出钳制。
+        // 伪预算路径 budgetH = cachedContent + insetBottom 可能超过系统协商预算
+        // （29% 时 calc=821 > 窗口预算 689），导致窗口溢出 132px 到三键导航区
+        // （touchable 超屏，点击三键被键盘拦截 = "底部与快捷键重叠"）。
+        // 任何情况下总高度不得超过最近有效预算；正常键盘（预算 921）calc
+        // 与预算一致，钳制无影响。
+        if (lastBudgetSpecH > 0) {
+            total = minOf(total, lastBudgetSpecH)
+        }
         val fromReq = measureFromRequest
         measureFromRequest = false
         val specChanged = specH != lastSpecH || specMode != lastSpecMode

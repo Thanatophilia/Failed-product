@@ -1,6 +1,7 @@
 package com.silentime.ime.keyboard
 
 import android.graphics.RectF
+import com.silentime.ime.settings.KeyboardSettings
 
 /**
  * 键盘尺寸计算（纯函数，不依赖 View、不持有状态）。
@@ -18,17 +19,11 @@ object KeyboardMetrics {
 
     // ---------- 高度参数 ----------
 
-    /** 目标高度占可用窗口高度的比例区间（竖屏 35%，横屏 49%） */
-    const val RATIO_MIN = 0.35f
-    const val RATIO_MAX = 0.49f
-
     /** 竖屏：目标比例 35%（用户要求，键盘更矮），dp 上下限 180~320 */
-    private const val RATIO_PORTRAIT = 0.35f
     private const val MIN_DP_PORTRAIT = 180
     private const val MAX_DP_PORTRAIT = 320
 
     /** 横屏：目标比例 49%（用户指定），dp 上下限 120~260（49% 在大屏/高 density 下也需兜底） */
-    private const val RATIO_LANDSCAPE = 0.49f
     private const val MIN_DP_LANDSCAPE = 120
     private const val MAX_DP_LANDSCAPE = 260
 
@@ -47,17 +42,40 @@ object KeyboardMetrics {
      * 其中 bottomInsetPx 由 WindowInsets 提供（导航栏/手势条高度，禁止写死）。
      * inset 区域用于绘制背景色以保持视觉连续，但不参与按键布局，
      * 从而保证按键永不遮挡导航栏、也不会产生双重留白。
+     *
+     * @param portraitPercent 竖屏目标百分比（25~45，默认 35 与基线一致）
+     * @param landscapePercent 横屏目标百分比（35~65，默认 49 与基线一致）
      */
     fun totalHeight(
         windowHeightPx: Int,
         bottomInsetPx: Int,
         isLandscape: Boolean,
         density: Float,
-    ): Int = contentHeight(windowHeightPx, isLandscape, density) + bottomInsetPx
+        portraitPercent: Int = KeyboardSettings.DEFAULT_PORTRAIT_PERCENT,
+        landscapePercent: Int = KeyboardSettings.DEFAULT_LANDSCAPE_PERCENT,
+    ): Int = contentHeight(
+        windowHeightPx,
+        isLandscape,
+        density,
+        portraitPercent,
+        landscapePercent,
+    ) + bottomInsetPx
 
-    /** 键盘主体（按键区）内容高度：可用高度 36%~42%，夹在 dp 上下限之间 */
-    fun contentHeight(windowHeightPx: Int, isLandscape: Boolean, density: Float): Int {
-        val ratio = if (isLandscape) RATIO_LANDSCAPE else RATIO_PORTRAIT
+    /**
+     * 键盘主体（按键区）内容高度：可用高度 × 对应方向百分比，夹在 dp 上下限之间。
+     *
+     * 百分比入参由调用方（KeyboardView）从设置仓库读取；未显式传入时用基线默认值
+     * （竖屏 35% / 横屏 49%），保证任何漏传路径都与基线表现完全一致。
+     */
+    fun contentHeight(
+        windowHeightPx: Int,
+        isLandscape: Boolean,
+        density: Float,
+        portraitPercent: Int = KeyboardSettings.DEFAULT_PORTRAIT_PERCENT,
+        landscapePercent: Int = KeyboardSettings.DEFAULT_LANDSCAPE_PERCENT,
+    ): Int {
+        val percent = if (isLandscape) landscapePercent else portraitPercent
+        val ratio = percent / 100f
         val minPx = (if (isLandscape) MIN_DP_LANDSCAPE else MIN_DP_PORTRAIT) * density
         val maxPx = (if (isLandscape) MAX_DP_LANDSCAPE else MAX_DP_PORTRAIT) * density
         return (windowHeightPx * ratio).toInt().coerceIn(minPx.toInt(), maxPx.toInt())
