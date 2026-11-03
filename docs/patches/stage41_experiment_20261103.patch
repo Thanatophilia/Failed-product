@@ -1,0 +1,68 @@
+diff --git a/app/src/main/java/com/silentime/ime/keyboard/KeyboardLayout.kt b/app/src/main/java/com/silentime/ime/keyboard/KeyboardLayout.kt
+index 496ac02..4c6998f 100644
+--- a/app/src/main/java/com/silentime/ime/keyboard/KeyboardLayout.kt
++++ b/app/src/main/java/com/silentime/ime/keyboard/KeyboardLayout.kt
+@@ -50,10 +50,13 @@ object KeyboardLayout {
+             letters(ROW_1),
+             letters(ROW_2),
+             // 第三行：Shift + 字母 + Backspace
++            // Stage 4.1：Shift/Backspace 权重 1.5→1.0，使本行总权重 = 9U，
++            // 与第二排 (9U) 平齐、相对第一排 (10U) 缩进 0.5U，
++            // 由"行宽梯度 + 居中"形成梯形阶梯（不依赖固定像素偏移）。
+             buildList {
+-                add(Key.shift())
++                add(Key(KeyType.SHIFT, "\u21E7", weight = 1.0f))
+                 addAll(letters(ROW_3))
+-                add(Key.backspace())
++                add(Key(KeyType.BACKSPACE, "\u232B", weight = 1.0f))
+             },
+             // 第四行：符号切换 + 空格 + 回车
+             listOf(Key.symbols(), Key.space(), Key.enter()),
+@@ -67,9 +70,11 @@ object KeyboardLayout {
+             NUM_ROW_1.map { Key.char(it.toString()) },
+             chars(NUM_ROW_2),
+             buildList {
+-                add(Key.letters())
++                // Stage 4.1：与字母模式一致，letters/backspace 权重 1.5→1.0，
++                // 使本行总权重 = 9U，形成 10/9/9/8 对称梯形。
++                add(Key(KeyType.LETTERS, "ABC", weight = 1.0f))
+                 addAll(chars(NUM_ROW_3))
+-                add(Key.backspace())
++                add(Key(KeyType.BACKSPACE, "\u232B", weight = 1.0f))
+             },
+             // 底部行：ABC 切换 + 空格 + 回车
+             listOf(Key.letters(), Key.space(), Key.enter()),
+diff --git a/app/src/main/java/com/silentime/ime/keyboard/KeyboardMetrics.kt b/app/src/main/java/com/silentime/ime/keyboard/KeyboardMetrics.kt
+index 52ebb7b..45e7a45 100644
+--- a/app/src/main/java/com/silentime/ime/keyboard/KeyboardMetrics.kt
++++ b/app/src/main/java/com/silentime/ime/keyboard/KeyboardMetrics.kt
+@@ -96,15 +96,23 @@ object KeyboardMetrics {
+         val totalRowGap = rowGap * (rowCount - 1)
+         val rowHeight = (contentHeight - totalRowGap) / rowCount
+ 
++        // Stage 4.1：梯形错位（仅水平坐标调整；高度/行距/上下留白一律不变）。
++        // 梯形由"行宽梯度 + 整行水平居中"自然形成，不引入固定像素偏移：
++        //   R1(10U) → R2(9U)/R3(9U) 缩进 0.5U → R4(8U) 缩进 1.0U。
++        // 行宽梯度在 KeyboardLayout.kt 通过调整第三排 Shift/Backspace 权重实现，
++        // 短行居中后左右均等缩进，天然形成两侧对称的梯形阶梯。
++        val availWidth = contentWidth - padding * 2
++        val rowWeights = rows.map { KeyboardLayout.totalWeight(it) }
++        val maxRowWeight = rowWeights.maxOrNull() ?: 1f
++        val unitWidth = availWidth / maxRowWeight
++
+         rows.forEachIndexed { rowIndex, row ->
+             val top = rowIndex * (rowHeight + rowGap)
+             val bottom = top + rowHeight
+-
+-            val availWidth = contentWidth - padding * 2
+-            val totalWeight = KeyboardLayout.totalWeight(row)
+-            val unitWidth = availWidth / totalWeight
+-
+-            var left = padding
++            // 本行宽 = 行总权重 × 单位键宽；行整体水平居中（短行自然左右缩进）
++            val rowWidth = rowWeights[rowIndex] * unitWidth
++            val rowLeft = padding + (availWidth - rowWidth) / 2f
++            var left = rowLeft
+             row.forEach { key ->
+                 // 回车键文案可能被 service 改写
+                 val actualKey = if (key.type == KeyType.ENTER) {

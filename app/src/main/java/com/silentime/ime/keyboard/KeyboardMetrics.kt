@@ -96,15 +96,25 @@ object KeyboardMetrics {
         val totalRowGap = rowGap * (rowCount - 1)
         val rowHeight = (contentHeight - totalRowGap) / rowCount
 
+        // Stage 4.1 水平布局公共参数（仅水平坐标；高度/行距/Insets 一律不变）
+        val availWidth = contentWidth - padding * 2   // 内容可用宽度 W
+        val gap = padding * 0.5f                        // 键间距 G（与基线一致）
+        val maxKeyCount = rows.maxOf { it.size }        // 最多键数行 Smax(=10)
+
         rows.forEachIndexed { rowIndex, row ->
             val top = rowIndex * (rowHeight + rowGap)
             val bottom = top + rowHeight
 
-            val availWidth = contentWidth - padding * 2
+            // Stage 4.1 梯形错位（对齐 Fcitx5）：仅水平坐标计算；高度/行距/Insets 一律不变。
+            // 行宽只由权重决定（T×U），gap 是键间视觉间距（键槽内缩进），不参与行宽——
+            //   R1(10U) 与 R3(10U) 因此左右完全对齐；R2(9U) 居中后左右各缩进 0.5U；
+            //   R4(8U) 整行居中。此与基线 gap 语义一致，避免重复计算间距。
             val totalWeight = KeyboardLayout.totalWeight(row)
-            val unitWidth = availWidth / totalWeight
+            val unitWidth = (availWidth - gap * (maxKeyCount - 1)) / maxKeyCount
+            val rowWidth = totalWeight * unitWidth
+            val rowLeft = padding + (availWidth - rowWidth) / 2f
 
-            var left = padding
+            var left = rowLeft
             row.forEach { key ->
                 // 回车键文案可能被 service 改写
                 val actualKey = if (key.type == KeyType.ENTER) {
@@ -113,7 +123,6 @@ object KeyboardMetrics {
                     key
                 }
                 val keyWidth = unitWidth * key.weight
-                val gap = padding * 0.5f
                 val rect = RectF(
                     left + gap + offsetX,
                     top + rowGap * 0.4f,

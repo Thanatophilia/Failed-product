@@ -534,3 +534,40 @@ rebuildLayout view=1080x791 content=1080x743 insetsB=48
 
 **回归日志**：/sdcard/Download/silentime_v42_regression.log（36,480 字节，含全部 onMeasure sig/shrink/hdp 现场）
 **遗留**：横屏自动化受限；分屏精确实测待用户手测确认（本次已在真分屏下验证零收缩）
+
+---
+
+## Stage 4.1 · 梯形错位 QWERTY（对齐 Fcitx5 Android）— 真机验收通过（2026-11-03）
+
+### 目标
+以 Fcitx5 Android 默认英文 QWERTY 为实际参考，将 SilentIM 主键盘改造为梯形错位布局：
+R1=QWERTYUIOP(10U)、R2=ASDFGHJKL(9U 居中缩进 0.5U)、R3=Shift1.5+ZXCVBNM+BS1.5(10U 与 R1 对齐)、R4=symbols1.5+space5+enter1.5(8U 居中)。
+保留 SilentIM 原有功能与稳定性。
+
+### 方案演进
+1. **第一版实验（被用户否定）**：把 Shift/BS 权重视为 1.0U 使 R3=9U，再手调偏移——梯形观感不对、偏移靠反复试比例，用户否决并要求暂停、先做 Fcitx5 对照研究。
+2. **Fcitx5 研究结论**（仓库 /tmp/fcitx5-android）：TextKeyboard.kt 定义四排；KeyDefPreset 键宽 Alphabet=0.1、Caps/Backspace=0.15、Space 弹性=0；BaseKeyboard 每行 ConstraintLayout+CHAIN_PACKED 居中，行宽=percentWidth 总和（R1=1.0、R2=0.9、R3=0.15+0.7+0.15=1.0、R4 由 Space 弹性铺满），梯形由“行宽百分比差异+居中”自然产生；间距为独立 hMargin/vMargin 偏好。**根因**：上一版偏离了 Fcitx5 的 1.5U Shift/BS 加宽结构。
+3. **正式实施（唯一改动 KeyboardMetrics.kt，+13 -4）**：
+   - 提取 availWidth/gap/maxKeyCount 到循环外；
+   - unitWidth = (availWidth - G×(Smax-1)) / Smax，Smax=rows.maxOf{it.size}=10；
+   - rowWidth = totalWeight × unitWidth（**不含 gap**，保证 R1=R3=10U 对齐；任务书公式 rowWidth=T×U+G×(S-1) 会因差一个 gap 导致 R1/R3 无法对齐，故改为纯权重决定行宽，gap 仅作键内视觉间距）；
+   - rowLeft = padding + (availWidth - rowWidth)/2（行居中）。
+   - 高度/行距/Insets 逻辑一律未动；KeyboardLayout.kt/KeyboardView.kt 与 v4.2 完全一致（Shift/BS=1.5U 保持基线原有定义）。
+4. 实验版 diff 已保存 docs/patches/stage41_experiment_20261103.patch（68 行），两文件已恢复 v4.2 基线后再实施。
+
+### 真实坐标表（已落盘 docs/stage41_coords_table.txt，98 行，含 gap 已计入说明）
+- 竖屏 1080×789（U=99.58、G=6.48、padding=12.96、rowHeight=185.41、rowGap=15.78）：
+  R1/R3 left=48.60 right=1037.88；R2 left=98.39 right=988.09（左右各缩进 49.79=0.5U）；R4 left=148.18 right=938.30。
+- 横屏 2256×500：U=208.00、R2 缩进 104.01px。
+- 7 项自检通过：R1=R3 等宽、R2 对称缩进、R4 居中、键宽合权重、界内、无重叠、绘制=触摸同源。
+
+### 真机验证（realme GT Neo6 / Android 16）
+- APK：/data/local/tmp/silentime_stage41_final.apk，SHA-256 c4c87708a25ce65cc4b6e7464f7fb2e174e9dac68e7daf38b776690f937d5927，签名 Signer#1 CN=Android Debug（v1/v2）。
+- 像素检测：裁剪键盘区 [0,1455][1080,2376]，4 排实测 left=48/98/48/148、right=1030/980/1030/930，与坐标表误差 <1px。
+- 触摸命中：Q/A/P/L/Z/M/空格/@/ABC 切换全部正确输入；Shift 一次性大写、Backspace 删除、?123 符号模式、ABC 切回全通过。
+- 高度稳定：IME frame 恒 [0,1455][1080,2376]（921px），与 v4.2 一致无收缩。
+- **用户复测结论：“我测完了，没问题”。**
+
+### 交付状态
+- 分支 stage4.1-staggered（从 v4.2 tag 分叉，main 未动）；仅 KeyboardMetrics.kt 待提交（+13 -4）；docs/patches/、docs/stage41_coords_table.txt 新增未跟踪。
+- 按用户指令：不提交/不推送 GitHub、不合并 main、不实施 Stage 4.2、不增加逗号/地球/句号按钮，等待 ChatGPT 审核验收。
