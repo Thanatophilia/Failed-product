@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SilentIME</string>
+    <string name="scaffold_ready">SilentIME 脚手架已就绪\n（Phase 1 · Step 1）</string>
+
+    <!-- 输入法服务 -->
+    <string name="ime_placeholder">SilentIME 已启动\n键盘 UI 开发中</string>
+    <string name="ime_service_name">SilentIME 输入法</string>
+
+    <!-- 输入法子类型 -->
+    <string name="subtype_zh">中文（拼音）</string>
+    <string name="subtype_en">English</string>
+</resources>

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    SilentIME 输入法元数据。
+    AndroidManifest 中的 service 通过 android:resource="@xml/method" 指向本文件，
+    系统据此把本应用列入「可用输入法」列表并读取支持的语言/子类型。
+
+    隐私说明：本文件仅声明输入类型，不声明任何数据采集能力。
+-->
+<input-method xmlns:android="http://schemas.android.com/apk/res/android"
+    android:settingsActivity="com.silentime.ime.MainActivity"
+    android:supportsSwitchingToNextInputMethod="true">
+
+    <!-- 中文（拼音）子类型 -->
+    <subtype
+        android:imeSubtypeMode="keyboard"
+        android:imeSubtypeLocale="zh_CN"
+        android:label="@string/subtype_zh" />
+
+    <!-- 英文子类型 -->
+    <subtype
+        android:imeSubtypeMode="keyboard"
+        android:imeSubtypeLocale="en_US"
+        android:label="@string/subtype_en" />
+
+</input-method>

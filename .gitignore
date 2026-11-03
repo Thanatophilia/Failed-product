@@ -1,0 +1,26 @@
+# Gradle / Android build
+.gradle/
+build/
+app/build/
+.kotlin/
+local.properties
+*.apk
+*.aab
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# 备份与临时产物（不纳入版本库）
+*.bak_v40
+*.bak_v41
+*.bak_*
+stage321_*.png
+stage322_*.png
+*.log
+*.png
+!docs/**/*.png
+
+# 系统
+.DS_Store

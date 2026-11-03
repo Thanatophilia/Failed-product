@@ -1,0 +1,1 @@
+# SilentIME ProGuard rules (phase 1 placeholder)
