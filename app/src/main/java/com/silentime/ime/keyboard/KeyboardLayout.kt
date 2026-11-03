@@ -55,8 +55,8 @@ object KeyboardLayout {
                 addAll(letters(ROW_3))
                 add(Key.backspace())
             },
-            // 第四行：符号切换 + 空格 + 回车
-            listOf(Key.symbols(), Key.space(), Key.enter()),
+            // 第四行：模式切换(?123/ABC) + 逗号 + 地球 + 空格(4U) + 句号 + 回车（10U）
+            listOf(Key.symbols(), Key.char(","), Key.earth(), Key.space(4f), Key.char("."), Key.enter()),
         )
     }
 
@@ -71,8 +71,8 @@ object KeyboardLayout {
                 addAll(chars(NUM_ROW_3))
                 add(Key.backspace())
             },
-            // 底部行：ABC 切换 + 空格 + 回车
-            listOf(Key.letters(), Key.space(), Key.enter()),
+            // 底部行：ABC 切换 + 逗号 + 地球 + 空格(4U) + 句号 + 回车（10U）
+            listOf(Key.letters(), Key.char(","), Key.earth(), Key.space(4f), Key.char("."), Key.enter()),
         )
     }
 

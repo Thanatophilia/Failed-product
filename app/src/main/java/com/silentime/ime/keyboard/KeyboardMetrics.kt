@@ -91,7 +91,9 @@ object KeyboardMetrics {
         val result = ArrayList<KeyBounds>(rows.size * 10)
 
         val rowCount = rows.size
-        val padding = contentWidth * 0.012f
+        // Stage 4.2.1：水平 padding 由 1.2% 收紧至 0.6%，键区向左右填充（留白减半，gap 联动缩小）。
+        // 仅水平坐标受影响；高度/行距/Insets 一律不变。
+        val padding = contentWidth * 0.006f
         val rowGap = contentHeight * 0.02f
         val totalRowGap = rowGap * (rowCount - 1)
         val rowHeight = (contentHeight - totalRowGap) / rowCount

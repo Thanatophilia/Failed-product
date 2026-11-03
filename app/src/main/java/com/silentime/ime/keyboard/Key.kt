@@ -25,6 +25,9 @@ enum class KeyType {
 
     /** 切回字母布局 */
     LETTERS,
+
+    /** 地球键：打开 Android 系统输入法选择器（由 Service 调用系统 API） */
+    EARTH,
 }
 
 /**
@@ -59,7 +62,7 @@ data class Key(
 
         fun backspace(): Key = Key(KeyType.BACKSPACE, "\u232B", weight = 1.5f)
 
-        fun space(): Key = Key(KeyType.SPACE, "", " ", weight = 5f)
+        fun space(weight: Float = 5f): Key = Key(KeyType.SPACE, "", " ", weight)
 
         fun enter(label: String = "\u23CE"): Key =
             Key(KeyType.ENTER, label, "\n", weight = 1.5f)
@@ -67,5 +70,8 @@ data class Key(
         fun symbols(): Key = Key(KeyType.SYMBOLS, "?123", weight = 1.5f)
 
         fun letters(): Key = Key(KeyType.LETTERS, "ABC", weight = 1.5f)
+
+        /** 地球键：打开系统输入法选择器；无 value，由 Service 处理 */
+        fun earth(): Key = Key(KeyType.EARTH, "", weight = 1f)
     }
 }

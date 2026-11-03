@@ -571,3 +571,61 @@ R1=QWERTYUIOP(10U)、R2=ASDFGHJKL(9U 居中缩进 0.5U)、R3=Shift1.5+ZXCVBNM+BS
 ### 交付状态
 - 分支 stage4.1-staggered（从 v4.2 tag 分叉，main 未动）；仅 KeyboardMetrics.kt 待提交（+13 -4）；docs/patches/、docs/stage41_coords_table.txt 新增未跟踪。
 - 按用户指令：不提交/不推送 GitHub、不合并 main、不实施 Stage 4.2、不增加逗号/地球/句号按钮，等待 ChatGPT 审核验收。
+
+---
+
+## Stage 4.2 · 第四排功能键扩展（逗号 / 地球 / 空格4U / 句号）— 真机验收通过（2026-11-03）
+
+### 目标
+在 v4.1-stage-4.1 基线上扩展第四排按键：字母模式 [?123 逗号 地球 空格 句号 Enter]、符号模式 [ABC 逗号 地球 空格 句号 Enter]（仅首键随模式切换）；两种模式第四排均为 10U 居中；地球键打开 Android 系统输入法选择器；不改变高度/Insets/缓存/横竖屏策略。
+
+### 实施内容（4 个 Kotlin 文件，+86 -5）
+1. **Key.kt**（+7）：新增 `KeyType.EARTH`；`Key.earth()` 工厂（label="", weight=1f）；`space(weight=5f)` 参数化（Stage 4.2 用 4f）。
+2. **KeyboardLayout.kt**（+4 -4）：字母/符号模式 R4 均改为 `symbols/letters(1.5) + ","(1) + earth(1) + space(4) + "."(1) + enter(1.5)` = 10U；仅首键 ?123/ABC 切换。
+3. **KeyboardView.kt**（+54）：`Listener` 新增 `onOpenImeSwitcher()`；`handleKey()` 新增 EARTH 分支（仅回调 listener，不碰系统服务）；`onDraw` 新增 EARTH 图标分支（单色几何地球：圆形外框+经线+纬线，Canvas 绘制，不依赖 Emoji 字体，不改变 bounds/hitTest）。
+4. **SilentImeService.kt**（+21）：实现 `onOpenImeSwitcher()` → `getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager` → `showInputMethodPicker()`（异常静默、无新权限、不改内部语言状态）。
+
+### 未修改（保护基线）
+KeyboardMetrics.kt / AndroidManifest.xml / build.gradle.kts 指纹前后一致（3a1a15a3… / b2838f6d… / fc1c43e8…）；高度、Insets、Stage 3.2.2 缓存、onMeasure、横竖屏策略零接触。
+
+### 坐标验证（docs/stage42_coords_table.txt，143 行，ALL PASS）
+- 竖屏 1080×789：U=99.58、G=6.48；R4 `?123[48.60,185.00] 逗号[197.96,284.58] 地球[297.54,384.16] 空格[397.12,782.46] 句号[795.42,882.04] Enter[895.00,1031.40]`，左边界=42.12 右边界=1037.88 与 R1/R3 完全对齐。
+- 横屏 2256×500：U=208.00、G=13.54；R4 同样与 R1 对齐 [87.98 ~ 2168.02]。
+- 12 项验证全过：R4=10U、左右对齐 R1、逗号/地球/句号 1U、空格 4U、无重叠、符号/字母模式除首键外位置一致。
+
+### 真机验证（realme GT Neo6 / Android 16）
+- APK：/data/local/tmp/silentime_stage42.apk，SHA-256 c883143aaa9184dbe719b1d1504a23d14e690792ed4db280e8db22ad8e31cb1d，签名 CN=Android Debug（v1/v2），versionName=0.1.0-phase1/versionCode=1，lastUpdateTime=13:41:23。
+- 构建：./gradlew assembleDebug --no-daemon --console=plain → BUILD SUCCESSFUL in 1m 2s（仅 1 个既有 deprecation 警告）。
+- 测试：逗号点击输入 text=",,"（Settings 搜索框实读验证）；句号、空格、?123/ABC 切换、地球选择器、Shift/退格回归由用户复测。
+- **用户复测结论：“我测试了，没问题”。**
+
+### 交付状态
+- 分支 stage4.1-staggered @ v4.1-stage-4.1 基线，工作区 4 源码文件修改（86+/5-）+ 2 docs 新增（stage42_coords_table.txt、DEVLOG 本段）未提交。
+- 按任务书：不 commit / 不 push / 不创建 tag / 不 merge / 不动 main，保留变更等待用户确认提交。
+
+---
+
+## Stage 4.2.1 · 键盘左右留白填充（padding 1.2% → 0.6%）— 真机验证通过（2026-11-03）
+
+### 变更
+用户反馈键盘两边留白有点宽了，把整体键盘按钮左右两边填充。
+
+- 仅修改 KeyboardMetrics.kt（+3 -1）：padding = contentWidth * 0.012f → 0.006f。
+- gap = padding × 0.5 联动缩小（6.48→3.24px），仍仅作键内视觉间距，不参与行宽（Stage 4.1/4.2 gap 语义不变）。
+- 高度 / 行距 / rowGap / Insets / 缓存 / onMeasure / 横竖屏高度策略全部不变。
+
+### 坐标变化（复刻公式重新计算，docs/stage42_coords_table.txt 已更新为 4.2.1 版）
+- 竖屏 1080×789：padding 12.96→6.48，U 99.58→103.79；R1/R4 键区边界 48.6→21.1（左右留白减半）；键区总宽 982.8→1037.9。
+- 横屏 2256×500：padding 27.07→13.54，U 208.00→216.80；R1/R4 边界 87.98→44.0。
+- 12 项验证 ALL PASS：R4=10U、R4 左右对齐 R1、逗号/地球/句号 1U、空格 4U、无重叠、留白减少断言。
+
+### 构建与安装
+- ./gradlew assembleDebug --no-daemon --console=plain → BUILD SUCCESSFUL in 48s（BUILD_EXIT=0）。
+- APK：/data/local/tmp/silentime_stage421.apk，SHA-256 de81675a32fe749b3351bf76c6a09b94db27071bb79d405573ccef8eb13eddbf，签名 CN=Android Debug。
+- 安装：pm install -r Success（lastUpdateTime=13:50:31）。
+
+### 真机验证
+- IME frame 恒 [0,1455][1080,2376]（高 921px 与 Stage 4.2 一致，高度无回归）。
+- 像素检测：4 排键帽带 [1461,1633]/[1662,1835]/[1863,2036]/[2065,2237]；R1/R4 左边界实测 24（预测 21.1），右边界 1055（预测 1058.9），误差 <4px（圆角边缘）。
+- 触摸命中：逗号新位置 (228,2150) 输入 ","、Q 新位置 (73,1547) 输入 "q"，EditText 实读 text=",q" 验证通过。
+- 用户复测结论：验收通过（我测试了，没问题）。

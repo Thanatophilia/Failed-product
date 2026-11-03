@@ -86,6 +86,9 @@ class KeyboardView @JvmOverloads constructor(
 
         /** 切换布局模式 */
         fun onLayoutModeChange(mode: LayoutMode)
+
+        /** 地球键：打开系统输入法选择器（由 Service 调用系统 API，本类不碰系统服务） */
+        fun onOpenImeSwitcher()
     }
 
     var listener: Listener? = null
@@ -495,6 +498,11 @@ class KeyboardView @JvmOverloads constructor(
                 val textY = kb.rect.centerY() - (labelPaint.descent() + labelPaint.ascent()) / 2f
                 canvas.drawText(kb.key.label, kb.rect.centerX(), textY, labelPaint)
             }
+
+            // 地球键：单色几何图标（圆形外框 + 经线 + 纬线），不依赖 Emoji 字体
+            if (kb.key.type == KeyType.EARTH) {
+                drawEarthIcon(canvas, kb.rect, isPressed)
+            }
         }
     }
 
@@ -564,6 +572,47 @@ class KeyboardView @JvmOverloads constructor(
         return true
     }
 
+    /**
+     * 绘制地球键的单色几何图标（圆形外框 + 经线 + 纬线）。
+     * 纯 Canvas 绘制，不依赖任何字体/Emoji，不改变按键 bounds 与 hitTest。
+     */
+    private fun drawEarthIcon(canvas: Canvas, rect: RectF, isPressed: Boolean) {
+        val cx = rect.centerX()
+        val cy = rect.centerY()
+        val r = rect.width() * 0.16f
+        val color = if (isPressed) labelPressedColor else labelColor
+        val stroke = labelPaint.strokeWidth.coerceAtLeast(rect.width() * 0.028f)
+
+        // 外框圆
+        labelPaint.style = Paint.Style.STROKE
+        labelPaint.strokeWidth = stroke
+        labelPaint.color = color
+        canvas.drawCircle(cx, cy, r, labelPaint)
+
+        // 纬线（水平两条：上 1/3、下 1/3）
+        val latOffset = r * 0.4f
+        canvas.drawLine(cx - r * 0.85f, cy - latOffset, cx + r * 0.85f, cy - latOffset, labelPaint)
+        canvas.drawLine(cx - r * 0.95f, cy + latOffset, cx + r * 0.95f, cy + latOffset, labelPaint)
+
+        // 经线（垂直一条 + 椭圆弧 ×2，形成球面感）
+        canvas.drawLine(cx, cy - r, cx, cy + r, labelPaint)
+        val ovalW = r * 0.55f
+        val ovalH = r * 0.95f
+        labelPaint.style = Paint.Style.STROKE
+        canvas.drawOval(
+            RectF(cx - ovalW, cy - ovalH, cx + ovalW, cy + ovalH),
+            labelPaint,
+        )
+        canvas.drawOval(
+            RectF(cx - ovalW * 0.35f, cy - ovalH, cx + ovalW * 0.35f, cy + ovalH),
+            labelPaint,
+        )
+
+        // 恢复 paint 状态（文字绘制依赖居中 + FILL）
+        labelPaint.style = Paint.Style.FILL
+        labelPaint.strokeWidth = 0f
+    }
+
     private fun startBackspaceRepeat() {
         stopBackspaceRepeat()
         val runnable = object : Runnable {
@@ -613,6 +662,11 @@ class KeyboardView @JvmOverloads constructor(
 
             KeyType.LETTERS -> {
                 listener?.onLayoutModeChange(LayoutMode.LETTERS_LOWER)
+            }
+
+            KeyType.EARTH -> {
+                // 地球键：打开系统输入法选择器（系统 API 由 Service 调用）
+                listener?.onOpenImeSwitcher()
             }
         }
     }

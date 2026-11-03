@@ -7,6 +7,7 @@ import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
+import android.view.inputmethod.InputMethodManager
 import com.silentime.ime.keyboard.KeyboardView
 import com.silentime.ime.keyboard.LayoutMode
 
@@ -284,6 +285,26 @@ class SilentImeService : InputMethodService(), KeyboardView.Listener {
                 shiftActive = false
                 kb.mode = LayoutMode.SYMBOLS
             }
+        }
+    }
+
+    /**
+     * 地球键：打开系统输入法选择器。
+     * 只负责唤起系统模态选择器；用户在系统 UI 中选择其它输入法后由系统完成切换。
+     * 不切换 SilentIM 内部语言状态、不直接切换输入法、不申请额外权限。
+     */
+    override fun onOpenImeSwitcher() {
+        logD("onOpenImeSwitcher()")
+        try {
+            val imm = getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager
+            if (imm != null) {
+                imm.showInputMethodPicker()
+            } else {
+                logD("showInputMethodPicker failed: InputMethodManager is null")
+            }
+        } catch (e: Exception) {
+            // 极端情况下（如系统拒绝）静默失败，不影响键盘使用
+            logD("showInputMethodPicker exception: ${e.message}")
         }
     }
 
