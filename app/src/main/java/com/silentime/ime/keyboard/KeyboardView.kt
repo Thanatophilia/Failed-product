@@ -7,12 +7,14 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
 import android.util.AttributeSet
 import android.util.Log
 import android.view.MotionEvent
 import android.view.View
+import android.view.HapticFeedbackConstants
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.silentime.ime.BuildConfig
@@ -232,6 +234,66 @@ class KeyboardView @JvmOverloads constructor(
         labelColor = c.label
         labelPressedColor = c.labelPressed
         logD("applyTheme theme=${themePreset.storageKey}")
+    }
+
+    // ---------- Stage 4.4.2：按键反馈开关（系统原生机制，尊重系统设置） ----------
+
+    /**
+     * 按键音效开关（默认关闭）。
+     * 打开时按下任意键播放系统原生按键音（[View.playSoundEffect]）；
+     * 播放本身由系统尊重"设置 > 声音 > 触摸提示音"及响铃模式静音。
+     */
+    var soundEnabled: Boolean = KeyboardSettings.KEY_SOUND_DEFAULT
+
+    /**
+     * 按键震动开关（默认关闭）。
+     * 打开时按下任意键触发系统原生键盘轻触反馈
+     * （[View.performHapticFeedback] KEYBOARD_TAP，无权限）。
+     * 不传 PERFORM_* 标志 → 同时尊重系统触觉总开关与当前 View 设置。
+     */
+    var vibrationEnabled: Boolean = KeyboardSettings.KEY_VIBRATION_DEFAULT
+
+    /**
+     * 按键反馈统一入口（普通键 / 功能键一致）。
+     * 仅在按下（ACTION_DOWN hit 成功）触发一次：
+     *  - 长按退格连发与滑键路径不会经过此方法 → 天然无堆积。
+     *  - 使用系统原生机制，不引入音频资源 / 第三方依赖 / 权限。
+     */
+    private fun performKeyFeedback() {
+        if (soundEnabled || vibrationEnabled) {
+            logD("feedback sound=$soundEnabled vib=$vibrationEnabled")
+        }
+        if (soundEnabled) {
+            // 直接播放系统键盘音（AudioManager 系统音效，FX_KEYPRESS_STANDARD）：
+            //  - 无需音频资源 / 权限，API 21+（minSdk 26 满足）。
+            //  - 不依赖"设置 > 声音 > 触摸提示音"开关：View.playSoundEffect 内部
+            //    检查 Settings.System.SOUND_EFFECTS_ENABLED（很多设备默认关闭），
+            //    导致"开了没声音"；AudioManager.playSoundEffect 直接播系统键盘音，
+            //    只由系统遵循响铃模式 / 音量（静音、勿扰时不响）= 尊重系统声音设置。
+            try {
+                val am = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+                am?.playSoundEffect(AudioManager.FX_KEYPRESS_STANDARD)
+            } catch (_: Exception) {
+                // 极端情况（音频系统不可用）静默，不影响按键
+            }
+        }
+        if (vibrationEnabled) {
+            // 系统原生键盘轻触。必须传 FLAG_IGNORE_VIEW_SETTING：
+            //  View 的 hapticFeedbackEnabled 默认 false，不传该标志会在
+            //  View.performHapticFeedback 内直接 return false（永不触发，表现为
+            //  "开了没震动"）。该标志只跳过 View 级开关，系统触觉总开关
+            //  （Settings.System.HAPTIC_FEEDBACK_ENABLED）仍由系统强制执行
+            //  → 继续尊重系统触觉设置。
+            try {
+                val ok = performHapticFeedback(
+                    HapticFeedbackConstants.KEYBOARD_TAP,
+                    HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING,
+                )
+                logD("haptic ok=$ok")
+            } catch (_: Exception) {
+                // 极端情况（触觉服务不可用）静默，不影响按键
+            }
+        }
     }
 
     // ---------- 复用对象，避免 onDraw 中分配 ----------
@@ -660,6 +722,9 @@ class KeyboardView @JvmOverloads constructor(
                 if (index >= 0) {
                     pressedIndex = index
                     invalidate()
+                    // Stage 4.4.2：按下即触发按键反馈（普通键 / 功能键一致；
+                    // 长按退格连发与滑键路径不经过这里，天然无堆积）
+                    performKeyFeedback()
                     // 退格键长按连续删除
                     if (bounds[index].key.type == KeyType.BACKSPACE) {
                         startBackspaceRepeat()

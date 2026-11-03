@@ -69,6 +69,20 @@ class SilentImeService : InputMethodService(), KeyboardView.Listener {
             }
             return@OnSharedPreferenceChangeListener
         }
+        // 按键音效 / 震动开关：仅更新 View 标志（不重建视图，不影响测量/布局）
+        if (key == SettingsRepository.KEY_SOUND_ENABLED ||
+            key == SettingsRepository.KEY_VIBRATION_ENABLED
+        ) {
+            keyboardView?.let { kb ->
+                kb.soundEnabled = SettingsRepository.keySoundEnabled()
+                kb.vibrationEnabled = SettingsRepository.keyVibrationEnabled()
+                logD(
+                    "settings feedback sound=${kb.soundEnabled} " +
+                        "vib=${kb.vibrationEnabled}"
+                )
+            }
+            return@OnSharedPreferenceChangeListener
+        }
         // 高度百分比变更（竖屏 / 横屏任一）：重建输入视图（见 rebuildInputView 注释）
         if (key == SettingsRepository.KEY_HEIGHT_PORTRAIT ||
             key == SettingsRepository.KEY_HEIGHT_LANDSCAPE
@@ -106,9 +120,13 @@ class SilentImeService : InputMethodService(), KeyboardView.Listener {
         view.themePreset = SettingsRepository.themePreset()
         view.portraitPercent = SettingsRepository.portraitPercent()
         view.landscapePercent = SettingsRepository.landscapePercent()
+        // Stage 4.4.2：按键反馈开关（默认关闭）
+        view.soundEnabled = SettingsRepository.keySoundEnabled()
+        view.vibrationEnabled = SettingsRepository.keyVibrationEnabled()
         logD(
             "onCreateInputView newView=$view theme=${view.themePreset.storageKey} " +
-                "portrait=${view.portraitPercent} landscape=${view.landscapePercent}"
+                "portrait=${view.portraitPercent} landscape=${view.landscapePercent} " +
+                "sound=${view.soundEnabled} vib=${view.vibrationEnabled}"
         )
         return view
     }
@@ -142,6 +160,9 @@ class SilentImeService : InputMethodService(), KeyboardView.Listener {
         view.themePreset = SettingsRepository.themePreset()
         view.portraitPercent = portraitPercent
         view.landscapePercent = landscapePercent
+        // Stage 4.4.2：按键反馈开关（默认关闭）
+        view.soundEnabled = SettingsRepository.keySoundEnabled()
+        view.vibrationEnabled = SettingsRepository.keyVibrationEnabled()
         view.mode = mode
         view.enterLabel = enterLabel
 
@@ -151,7 +172,8 @@ class SilentImeService : InputMethodService(), KeyboardView.Listener {
         logD(
             "rebuildInputView new=$view mode=$mode enter=$enterLabel " +
                 "portrait=$portraitPercent landscape=$landscapePercent " +
-                "theme=${view.themePreset.storageKey}"
+                "theme=${view.themePreset.storageKey} sound=${view.soundEnabled} " +
+                "vib=${view.vibrationEnabled}"
         )
     }
 

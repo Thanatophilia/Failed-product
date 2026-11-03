@@ -95,4 +95,11 @@ object KeyboardSettings {
             labelPressed = 0xFF000000.toInt(),
         ),
     )
+
+    // ---------- 按键反馈（Stage 4.4.2） ----------
+    /** 按键音效开关默认值（默认关闭；确保低打扰） */
+    const val KEY_SOUND_DEFAULT = false
+
+    /** 按键震动开关默认值（默认关闭；确保低打扰） */
+    const val KEY_VIBRATION_DEFAULT = false
 }

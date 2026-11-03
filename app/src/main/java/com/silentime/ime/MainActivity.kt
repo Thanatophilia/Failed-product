@@ -2,10 +2,13 @@ package com.silentime.ime
 
 import android.graphics.Color
 import android.os.Bundle
+import android.util.Log
+import android.view.Gravity
 import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.SeekBar
+import android.widget.Switch
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.silentime.ime.settings.KeyboardSettings
@@ -56,6 +59,47 @@ class MainActivity : AppCompatActivity() {
             progress = SettingsRepository.landscapePercent() - KeyboardSettings.LANDSCAPE_MIN_PERCENT
         }
         root.addView(landscapeBar)
+
+        // ---------- 按键音效 / 震动（Stage 4.4.2，默认关闭） ----------
+        root.addView(sectionTitle("按键反馈"))
+
+        val soundRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 8, 0, 12)
+        }
+        soundRow.addView(
+            TextView(this).apply {
+                text = "按键音效"
+                textSize = 16f
+                setTextColor(Color.WHITE)
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+        )
+        val soundSwitch = Switch(this).apply {
+            isChecked = SettingsRepository.keySoundEnabled()
+        }
+        soundRow.addView(soundSwitch)
+        root.addView(soundRow)
+
+        val vibeRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 8, 0, 12)
+        }
+        vibeRow.addView(
+            TextView(this).apply {
+                text = "按键震动"
+                textSize = 16f
+                setTextColor(Color.WHITE)
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+        )
+        val vibeSwitch = Switch(this).apply {
+            isChecked = SettingsRepository.keyVibrationEnabled()
+        }
+        vibeRow.addView(vibeSwitch)
+        root.addView(vibeRow)
 
         // ---------- 主题三档 ----------
         root.addView(sectionTitle("键盘主题"))
@@ -118,6 +162,17 @@ class MainActivity : AppCompatActivity() {
             SettingsRepository.setThemePreset(preset)
         }
 
+        // Stage 4.4.2：按键反馈开关（独立保存 + 监听即时生效）
+        soundSwitch.setOnCheckedChangeListener { _, isChecked ->
+            SettingsRepository.setKeySoundEnabled(isChecked)
+            logD("keySoundEnabled -> $isChecked")
+        }
+
+        vibeSwitch.setOnCheckedChangeListener { _, isChecked ->
+            SettingsRepository.setKeyVibrationEnabled(isChecked)
+            logD("keyVibrationEnabled -> $isChecked")
+        }
+
         setContentView(root)
     }
 
@@ -132,5 +187,10 @@ class MainActivity : AppCompatActivity() {
         textSize = 14f
         setTextColor(Color.LTGRAY)
         setPadding(0, 4, 0, 12)
+    }
+
+    /** Debug 诊断日志（仅 Debug 构建打印） */
+    private fun logD(msg: String) {
+        if (BuildConfig.DEBUG) Log.d("SilentIME/UI", msg)
     }
 }

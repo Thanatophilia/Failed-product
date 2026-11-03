@@ -28,6 +28,12 @@ object SettingsRepository {
     /** 键盘主题键（存储值：dark / light / high_contrast） */
     const val KEY_THEME = "keyboard_theme"
 
+    /** 按键音效开关键（存储值：Boolean，默认 false） */
+    const val KEY_SOUND_ENABLED = "key_sound_enabled"
+
+    /** 按键震动开关键（存储值：Boolean，默认 false） */
+    const val KEY_VIBRATION_ENABLED = "key_vibration_enabled"
+
     @Volatile
     private var prefs: SharedPreferences? = null
 
@@ -74,6 +80,14 @@ object SettingsRepository {
     fun themePreset(): KeyboardSettings.ThemePreset =
         KeyboardSettings.ThemePreset.fromStorage(p().getString(KEY_THEME, null))
 
+    /** 按键音效开关（默认 false；仅官方整值） */
+    fun keySoundEnabled(): Boolean =
+        p().getBoolean(KEY_SOUND_ENABLED, KeyboardSettings.KEY_SOUND_DEFAULT)
+
+    /** 按键震动开关（默认 false；仅官方整值） */
+    fun keyVibrationEnabled(): Boolean =
+        p().getBoolean(KEY_VIBRATION_ENABLED, KeyboardSettings.KEY_VIBRATION_DEFAULT)
+
     // ---------- 写入（立即持久化） ----------
 
     fun setPortraitPercent(percent: Int) {
@@ -94,6 +108,14 @@ object SettingsRepository {
 
     fun setThemePreset(preset: KeyboardSettings.ThemePreset) {
         p().edit().putString(KEY_THEME, preset.storageKey).apply()
+    }
+
+    fun setKeySoundEnabled(enabled: Boolean) {
+        p().edit().putBoolean(KEY_SOUND_ENABLED, enabled).apply()
+    }
+
+    fun setKeyVibrationEnabled(enabled: Boolean) {
+        p().edit().putBoolean(KEY_VIBRATION_ENABLED, enabled).apply()
     }
 
     // ---------- 应用内监听（Service 生命周期注册，实时生效） ----------
